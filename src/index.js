@@ -115,6 +115,11 @@ const app = express();
 // can read the real client IP from X-Forwarded-For without trusting arbitrary spoofed values.
 app.set('trust proxy', 1);
 
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.originalUrl}`);
+  next();
+});
+
 app.get('/healthz', (req, res) => {
   res.status(200).send('ok');
 });
