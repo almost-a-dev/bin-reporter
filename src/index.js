@@ -1,13 +1,17 @@
-const http = require('http');
+const express = require('express');
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+const { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } = require('@modelcontextprotocol/sdk/server/auth/router.js');
+const { requireBearerAuth } = require('@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js');
 const { z } = require('zod');
 const { reportMissedBin, listAddresses, BIN_COLOURS } = require('./reportBin');
+const { BinReporterOAuthProvider } = require('./oauth');
 
 const HOUSE_NUMBER = process.env.BIN_HOUSE_NUMBER;
 const POSTCODE = process.env.BIN_POSTCODE;
 const UPRN = process.env.BIN_UPRN;
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
+const PUBLIC_URL = process.env.PUBLIC_URL;
 const PORT = Number(process.env.PORT || 3000);
 
 if (!HOUSE_NUMBER || !POSTCODE) {
@@ -18,9 +22,20 @@ if (!HOUSE_NUMBER || !POSTCODE) {
 }
 
 if (!AUTH_TOKEN) {
-  console.error('Missing configuration: set MCP_AUTH_TOKEN to a secret used to authenticate requests.');
+  console.error('Missing configuration: set MCP_AUTH_TOKEN to a secret passphrase used to approve new OAuth clients.');
   process.exit(1);
 }
+
+if (!PUBLIC_URL) {
+  console.error(
+    'Missing configuration: set PUBLIC_URL to the externally reachable https URL of this server (e.g. https://bin-reporter.aerw.uk).'
+  );
+  process.exit(1);
+}
+
+const issuerUrl = new URL(PUBLIC_URL);
+const resourceServerUrl = new URL('/mcp', PUBLIC_URL);
+const provider = new BinReporterOAuthProvider(AUTH_TOKEN);
 
 function createServer() {
   const server = new McpServer({ name: 'bin-reporter', version: '1.0.0' });
@@ -95,50 +110,59 @@ function createServer() {
   return server;
 }
 
-function isAuthorized(req) {
-  const header = req.headers['authorization'] || '';
-  const [scheme, token] = header.split(' ');
-  return scheme === 'Bearer' && token === AUTH_TOKEN;
-}
+const app = express();
 
-const httpServer = http.createServer(async (req, res) => {
-  if (req.url === '/healthz') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('ok');
-    return;
-  }
-
-  if (req.url !== '/mcp') {
-    res.writeHead(404).end();
-    return;
-  }
-
-  if (!isAuthorized(req)) {
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Unauthorized' }));
-    return;
-  }
-
-  const server = createServer();
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-
-  res.on('close', () => {
-    transport.close();
-    server.close();
-  });
-
-  try {
-    await server.connect(transport);
-    await transport.handleRequest(req, res);
-  } catch (err) {
-    console.error('Error handling MCP request:', err);
-    if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Internal server error' }));
-    }
-  }
+app.get('/healthz', (req, res) => {
+  res.status(200).send('ok');
 });
 
-httpServer.listen(PORT, () => {
+app.use(
+  mcpAuthRouter({
+    provider,
+    issuerUrl,
+    resourceServerUrl,
+    scopesSupported: ['mcp'],
+    resourceName: 'bin-reporter',
+  })
+);
+
+app.post('/authorize/verify', express.urlencoded({ extended: true }), (req, res) => {
+  provider.completeAuthorization(req, res).catch((err) => {
+    console.error('Authorization error:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Internal server error');
+    }
+  });
+});
+
+app.all(
+  '/mcp',
+  requireBearerAuth({
+    verifier: provider,
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceServerUrl),
+  }),
+  express.json(),
+  async (req, res) => {
+    const server = createServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+
+    res.on('close', () => {
+      transport.close();
+      server.close();
+    });
+
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      console.error('Error handling MCP request:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    }
+  }
+);
+
+app.listen(PORT, () => {
   console.log(`bin-reporter MCP server listening on port ${PORT}`);
 });

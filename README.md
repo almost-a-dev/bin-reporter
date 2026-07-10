@@ -32,11 +32,14 @@ Set environment variables:
 
 ## Running with Docker
 
-The server listens over HTTP (Streamable HTTP transport) on `/mcp`, protected by a bearer
-token, plus an unauthenticated `/healthz`.
+The server listens over HTTP (Streamable HTTP transport) on `/mcp`, protected by OAuth 2.1
+(dynamic client registration + authorization code + PKCE), plus an unauthenticated `/healthz`.
+`MCP_AUTH_TOKEN` is now only used as a passphrase you enter on the `/authorize` consent page the
+first time a client (Claude Code, Claude Desktop, etc.) connects — clients then hold a
+short-lived OAuth access token instead of the raw passphrase.
 
 ```
-cp .env.example .env   # fill in your address and a real MCP_AUTH_TOKEN
+cp .env.example .env   # fill in your address, PUBLIC_URL, and a real MCP_AUTH_TOKEN
 docker build -t bin-reporter .
 docker run -d --name bin-reporter -p 3000:3000 --env-file .env bin-reporter
 ```
@@ -48,10 +51,17 @@ Local (stdio):
 claude mcp add bin-reporter -e BIN_HOUSE_NUMBER=260 -e BIN_POSTCODE="S75 6GP" -- node /Users/aidenellis/bin-reporter/src/index.js
 ```
 
-Hosted (HTTP):
+Hosted (HTTP, OAuth):
 ```
-claude mcp add --transport http bin-reporter https://your-host:3000/mcp --header "Authorization: Bearer <MCP_AUTH_TOKEN>"
+claude mcp add --transport http bin-reporter https://your-host/mcp
 ```
+This will open a browser to the `/authorize` consent page — enter your `MCP_AUTH_TOKEN`
+passphrase to approve.
+
+## Registering with Claude Desktop
+
+Settings → Connectors → Add custom connector → paste `https://your-host/mcp` as the URL. Claude
+Desktop will redirect you to the consent page to approve with your passphrase.
 
 ## CI/CD
 
