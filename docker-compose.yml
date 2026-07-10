@@ -1,0 +1,9 @@
+services:
+  bin-reporter:
+    build: .
+    container_name: bin-reporter
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
