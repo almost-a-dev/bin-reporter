@@ -166,6 +166,19 @@ app.all(
   }
 );
 
+app.use((req, res) => {
+  console.warn(`404 ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: 'Not found' });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(`Unhandled error on ${req.method} ${req.originalUrl}:`, err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`bin-reporter MCP server listening on port ${PORT}`);
 });
