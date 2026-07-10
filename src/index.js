@@ -111,6 +111,9 @@ function createServer() {
 }
 
 const app = express();
+// Trust exactly one hop (the reverse proxy in front of this container) so express-rate-limit
+// can read the real client IP from X-Forwarded-For without trusting arbitrary spoofed values.
+app.set('trust proxy', 1);
 
 app.get('/healthz', (req, res) => {
   res.status(200).send('ok');
