@@ -1,6 +1,6 @@
 services:
   bin-reporter:
-    build: .
+    image: ghcr.io/almost-a-dev/bin-reporter:latest
     container_name: bin-reporter
     restart: unless-stopped
     ports:
