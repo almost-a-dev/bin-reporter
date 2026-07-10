@@ -116,7 +116,9 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.originalUrl}`);
+  res.on('finish', () => {
+    console.log(`${req.method} ${req.originalUrl} -> ${res.statusCode}`);
+  });
   next();
 });
 
